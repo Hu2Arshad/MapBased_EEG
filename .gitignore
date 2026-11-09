@@ -1,0 +1,23 @@
+# data (never committed)
+data/
+converted*/
+preprocessed*/
+*.hdf5
+*.set
+*.fdt
+*.edf
+*.bdf
+
+# generated artifacts
+results/
+*.pkl
+*.csv
+*.png
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
