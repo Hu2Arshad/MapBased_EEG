@@ -12,7 +12,7 @@ model/
   EEGNet.py               EEGNet architecture (reference; Step4_Train embeds an equivalent)
 run/
   Step4_Train.py          train the 3 contrasts -> per-fold/per-epoch predictions CSV
-  Step5_Report.py         fuse + report BACC/ROC (e20 & e30) for every contrast combination
+  Step5_Report.py         fuse + report BACC/ROC for every contrast combination
 ```
 
 ## The three contrasts (built inside `Step4_Train.py`)
