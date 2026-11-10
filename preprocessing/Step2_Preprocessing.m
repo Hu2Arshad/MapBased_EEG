@@ -7,7 +7,11 @@ target_sfreq = 200;
 locutoff     = 0.53;     
 hicutoff     = 30;       
 notch_freq   = 60;      
-iclabel_thr  = 0.9;      
+iclabel_thr  = 0.9;
+
+ICA_SEED = str2double(getenv('ICA_SEED'));                           % ICA RNG seed (reproducible runica); default 0
+if isnan(ICA_SEED); ICA_SEED = 0; end
+fprintf('ICA_SEED = %d\n', ICA_SEED);
 
 EEGLAB_DIR = 'D:\2026\Prof hsu project\Dataset\Data1\eeglab2025.1.0';
 REPO_ROOT  = fileparts(fileparts(mfilename('fullpath')));            % <repo> (parent of preprocessing/)
@@ -72,7 +76,8 @@ parfor i = 1:length(file_list)
         % 4. Average reference 
         EEG = pop_reref(EEG, []);
 
-        % 5. ICA -- default rank
+        % 5. ICA -- default rank  (seeded per file so runica is reproducible; parfor workers need rng set inside the loop)
+        rng(ICA_SEED + i, 'twister');
         EEG = pop_runica(EEG, 'icatype', 'runica', 'extended', 1, 'interrupt', 'on');
         % 6. ICLabel -> remove muscle/eye/heart >= thr
         EEG = pop_iclabel(EEG, 'default');

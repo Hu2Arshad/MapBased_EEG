@@ -14,7 +14,7 @@ Pipeline:
                     s1raw / isiraw = raw S1 / raw ISI supertrials (optional, --models)
   4. 5x5 CV over subjects (StratifiedKFold, random_state split_seed+rep). Per fold and model, EEGNet (F1=8, D=2, dropout 0.5)
      trained 50 epochs: AdamW lr 1e-3 wd 1e-2, batch 64, grad clip 1.0, BCE weighted 1/(supertrials of the subject) x class
-     weight, seed 3407. A test subject's probability = mean sigmoid over its supertrials, saved at epochs 5,10,20,30,40,50.
+     weight, seed 0 (--seed drives supertrial sampling, the CV split, and EEGNet init/shuffle). A test subject's probability = mean sigmoid over its supertrials.
   5. readout: probabilities at 20 epochs; fusion = mean of the models' probabilities; BACC (threshold 0.5) and
      ROC-AUC per test fold, mean +/- std over the 25 folds
 Best result (74 subjects): three contrasts cs1+cisi+s1isi = 72.0 +/- 10.4 BACC
@@ -87,7 +87,7 @@ def subj_probs(model, dd, S, dev):
         out[s]=float(torch.sigmoid(torch.cat(z)).mean())
     return out
 
-def train_preds(dd, trS, teS, lab, dev):
+def train_preds(dd, trS, teS, lab, dev, seed=0):
     """Train one EEGNet on the training subjects' samples; return {epoch: {test subject: probability}}."""
     Xtr=[];ytr=[];sid=[]
     for s in trS:
@@ -95,7 +95,7 @@ def train_preds(dd, trS, teS, lab, dev):
     Xtr=np.stack(Xtr); ytr=np.array(ytr,np.float32); sid=np.array(sid)
     cc=np.bincount(ytr.astype(int),minlength=2).astype(float); clsw=cc.sum()/(2*np.maximum(cc,1))
     scn=Counter(sid.tolist()); w=np.array([(1.0/scn[sid[j]])*clsw[int(ytr[j])] for j in range(len(ytr))]); w=w/w.mean()
-    setup_seed(3407); model=EEGNet(8,2,32,200,0.5,4,1).to(dev)
+    setup_seed(seed); model=EEGNet(8,2,32,200,0.5,4,1).to(dev)
     opt=torch.optim.AdamW(model.parameters(),lr=1e-3,weight_decay=1e-2); bce=nn.BCEWithLogitsLoss(reduction='none')
     Xt=torch.tensor(Xtr,device=dev); yt=torch.tensor(ytr,device=dev); wt=torch.tensor(w,dtype=torch.float32,device=dev); n=len(Xt); out={}
     for ep in range(1,EPOCHS+1):
@@ -112,8 +112,9 @@ def score(y, p): return balanced_accuracy_score(y,[int(x>=.5) for x in p])*100, 
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--data',default='results/segments.pkl'); ap.add_argument('--exclude',default='39')
-    ap.add_argument('--models',default='dir0,cs1,cisi,s1isi'); ap.add_argument('--split_seed',type=int,default=42)
+    ap.add_argument('--models',default='dir0,cs1,cisi,s1isi'); ap.add_argument('--split_seed',type=int,default=0)
     ap.add_argument('--folds',default=''); ap.add_argument('--out',default='results/train_best_bacc_preds.csv')
+    ap.add_argument('--seed',type=int,default=0)           # seed for supertrial sampling, CV split, EEGNet init / shuffle
     ap.add_argument('--n_folds',type=int,default=5)        # folds per repeat (5 repeats); 10 -> 90% of the subjects train each model
     a=ap.parse_args(); MODELS=a.models.split(','); EXC={int(x) for x in a.exclude.split(',') if x}
     dev=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -126,9 +127,9 @@ def main():
         d=seg[sid]
         if d['s1'] is None or d['isi'] is None: continue
         if sid in EXC: continue
-        s0=supertrials_k(d['dir0'],seed=hash(('Dir0',sid,K))%(2**31))
-        s1=supertrials_k(d['s1'],seed=hash(('S1',sid,K))%(2**31))
-        si=supertrials_k(d['isi'],seed=hash(('ISI',sid,K))%(2**31))
+        s0=supertrials_k(d['dir0'],seed=hash(('Dir0',sid,K,a.seed))%(2**31))
+        s1=supertrials_k(d['s1'],seed=hash(('S1',sid,K,a.seed))%(2**31))
+        si=supertrials_k(d['isi'],seed=hash(('ISI',sid,K,a.seed))%(2**31))
         if s0 is None or s1 is None or si is None: continue            # < 100 clean supertrials in a view
         X0[sid]=s0; X1[sid]=s1; XI[sid]=si; lab[sid]=d['label']
     subs=np.array(sorted(lab)); y=np.array([lab[s] for s in subs])
@@ -153,7 +154,7 @@ def main():
     for fi in run:
         tr,te=SPLITS[fi]; trS=list(subs[tr]); teS=list(subs[te])
         for m in MODELS:
-            dd=data(m,trS+teS); PP[fi][m]=train_preds(dd,trS,teS,lab,dev); del dd
+            dd=data(m,trS+teS); PP[fi][m]=train_preds(dd,trS,teS,lab,dev,a.seed); del dd
             for e in SAVE_EPOCHS:
                 for s in teS: rows.append([m,fi,e,int(s),lab[s],f"{PP[fi][m][e][s]:.6f}"])
         with open(a.out,'w',newline='') as fh:
